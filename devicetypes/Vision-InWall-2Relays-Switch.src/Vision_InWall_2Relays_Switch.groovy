@@ -1,43 +1,36 @@
 /**
- *  Vision In-Wall 2Relays Switch (Models: ZL7435xx-5)
+ *	Vision In-Wall 2Relays Switch (Models: ZL7435xx-5)
+ * 
+ *	Author:
+ *  	Lan, Kuo Wei
  *
- *  Author:
- *    Lan, Kuo Wei 
- *
- *	Product Link: 
- *    http://www.visionsecurity.com.tw/index.php?option=product&lang=en&task=pageinfo&id=335&belongid=334&index=0
+ *	Product Link:
+ *	http://www.visionsecurity.com.tw/index.php?option=product&lang=en&task=pageinfo&id=335&belongid=334&index=0
 */
 metadata {
 	definition(
 		name: "Vision In-Wall 2Relays Switch", 
-		namespace: "SmartThings", 
+		namespace: "Vision_KuoWei", 
 		author: "Lan, Kuo Wei", 
 		ocfDeviceType: "oic.d.switch", 
-		mnmn: "SmartThings", 
-		vid: "generic-switch"
+		deviceTypeId: "Switch",
+		mnmn: "0ALw", 
+		vid: "812dd85f-ae1e-382e-9289-15cbc7c7fd6f"
 	) {
-		capability "Actuator"
 		capability "Health Check"
 		capability "Refresh"
 		capability "Switch"
 		capability "Configuration"
 		// This DTH uses 2 switch endpoints. Parent DTH controls endpoint 1 so please use '1' at the end of deviceJoinName
-		// Child device (isComponent : false) representing endpoint 2 will substitute 1 with 2 for easier identification.
-		fingerprint manufacturer: "0109", prod: "2017", model: "171B", deviceJoinName: "Vision 2Relays Switch 1"
-		fingerprint manufacturer: "0109", prod: "2017", model: "171C", deviceJoinName: "Vision 2Relays Switch 1"
+		// Child device (isComponent : false) representing endpoint 2 will substitute 1 with 2 for easier identification.		
+		fingerprint manufacturer: "0109", prod: "2017", model: "171B", deviceJoinName: "Vision 2Relays Switch 1" //zw:Ls type:1001 mfr:0109 prod:2017 model:171B ver:16.11 zwv:4.38 lib:03 cc:98 sec:5E,72,86,85,59,70,5A,7A,60,8E,73,27,25 epc:2
+		fingerprint manufacturer: "0109", prod: "2017", model: "171C", deviceJoinName: "Vision 2Relays Switch 1" //zw:Ls type:1001 mfr:0109 prod:2017 model:171C ver:25.07 zwv:4.54 lib:03 cc:98 sec:5E,72,86,85,59,70,5A,7A,60,8E,73,27,25 epc:2
 	}
 
 	preferences {
 		parameterMap.each {
 			input (title: it.name, description: it.description, type: "paragraph", element: "paragraph")
 			switch(it.type) {
-				case "boolean":
-					input(type: "paragraph", element: "paragraph", description: "Option enabled: ${it.activeDescription}\n" +
-							"Option disabled: ${it.inactiveDescription}"
-					)
-					input(name: it.key, type: "boolean", title: "Enable", defaultValue: it.defaultValue == it.activeOption, required: false)
-					break
-					
 				case "enum":
 					input(name: it.key, title: "Select", type: "enum", options: it.values, defaultValue: it.defaultValue, required: false)
 					break
@@ -47,19 +40,19 @@ metadata {
 }
 
 def installed() {
-	def componentLabel
-	if (device.displayName.endsWith('1')) {
-		componentLabel = "${device.displayName[0..-2]}2"
-	} else {		
-		componentLabel = "$device.displayName 2"
-	}
-	try {
-		String dni = "${device.deviceNetworkId}-ep2"
-		addChildDevice("Z-Wave Binary Switch Endpoint", dni, device.hub.id,
-			[completedSetup: true, label: "${componentLabel}", isComponent: false])
-		log.debug "Endpoint 2 (Z-Wave Binary Switch Endpoint) added as $componentLabel"
-	} catch (e) {
-		log.warn "Failed to add endpoint 2 ($desc) as Z-Wave Binary Switch Endpoint - $e"
+	/* Child device check */
+	if(!childDevices) {
+		def d = addChildDevice(
+			"smartthings",
+			"Z-Wave Binary Switch Endpoint",
+			"${device.deviceNetworkId}-child",
+			device.hubId,
+			[
+				completedSetup: true,
+				label: "${device.displayName[0..-2]}2",
+				isComponent: false
+			]
+		)
 	}
 	// Preferences template
 	state.currentPreferencesState = [:]
@@ -75,10 +68,9 @@ def installed() {
 
 def firstCommand(){
 	def commands = []
-	commands << zwave.configurationV1.configurationGet(parameterNumber: 0x01).format()
+	commands << encap(0, zwave.configurationV1.configurationGet(parameterNumber: 0x01))
 	commands << "delay 300"
-	commands << zwave.multiChannelAssociationV2.multiChannelAssociationSet(groupingIdentifier: 0x01, nodeId: [0x01, 0x01]).format()
-	commands << "delay 300"
+	commands << encap(0, zwave.multiChannelAssociationV2.multiChannelAssociationSet(groupingIdentifier: 0x01, nodeId: [0x01, 0x01]))
 	sendHubCommand(commands, 100)
 }
 
@@ -100,12 +92,11 @@ def configure() {
 	def commands = []
 	parameterMap.each {
 		if (state.currentPreferencesState."$it.key".status == "syncPending") {
-			commands << zwave.configurationV1.configurationSet(scaledConfigurationValue: getCommandValue(it), parameterNumber: it.parameterNumber, size: it.size).format()
-			commands << "delay 300"
-			commands << zwave.configurationV1.configurationGet(parameterNumber: it.parameterNumber).format()
+			commands << encap(0, zwave.configurationV1.configurationSet(scaledConfigurationValue: getCommandValue(it), parameterNumber: it.parameterNumber, size: it.size))
+			commands << "delay 300"			
+			commands << encap(0, zwave.configurationV1.configurationGet(parameterNumber: it.parameterNumber))
 		}
-	}
-		
+	}		
 	response(commands + refresh())
 }
 
@@ -120,10 +111,6 @@ def parse(String description) {
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.basicv1.BasicReport cmd, endpoint=null) {
-	(endpoint == 1) ? [name: "switch", value: cmd.value ? "on" : "off"] : [:]
-}
-
-def zwaveEvent(physicalgraph.zwave.commands.basicv1.BasicSet cmd, endpoint=null) {
 	(endpoint == 1) ? [name: "switch", value: cmd.value ? "on" : "off"] : [:]
 }
 
@@ -142,13 +129,13 @@ def zwaveEvent(physicalgraph.zwave.commands.securityv1.SecurityMessageEncapsulat
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.multichannelv3.MultiChannelCmdEncap cmd) {
-	if (cmd.commandClass == 0x6C && cmd.parameter.size >= 4) { // Supervision encapsulated Message		
+	if (cmd.commandClass == 0x6C && cmd.parameter.size >= 4) { // Supervision encapsulated Message
 		cmd.parameter = cmd.parameter.drop(2)
 		cmd.commandClass = cmd.parameter[0]
 		cmd.command = cmd.parameter[1]
 		cmd.parameter = cmd.parameter.drop(2)
 	}
-	def encapsulatedCommand = cmd.encapsulatedCommand([0x32: 3, 0x25: 1, 0x20: 1])
+	def encapsulatedCommand = cmd.encapsulatedCommand([0x25: 1, 0x20: 1])
 	if (cmd.sourceEndPoint == 1) {
 		zwaveEvent(encapsulatedCommand, 1)
 	} else { // sourceEndPoint == 2
@@ -195,31 +182,20 @@ def sendCommand(endpointDevice, commands) {
 	if (commands instanceof String) {
 		commands = commands.split(',') as List
 	}
-	result = commands.collect { encap(endpointNumber, it) }
+	result = commands.collect {encap(endpointNumber, it)}
 	sendHubCommand(result, 100)
 }
 
 def encap(endpointNumber, cmd) {
-	if (cmd instanceof physicalgraph.zwave.Command) {
-		command(zwave.multiChannelV3.multiChannelCmdEncap(destinationEndPoint: endpointNumber).encapsulate(cmd))
-	} else if (cmd.startsWith("delay")) {
-		cmd
-	} else {
-		def header = "600D00"
-		String.format("%s%02X%s", header, endpointNumber, cmd)
+	if (endpointNumber == 0) {
+		zwave.securityV1.securityMessageEncapsulation().encapsulate(cmd).format()
 	}
-}
-
-private command(physicalgraph.zwave.Command cmd) {
-	if (zwaveInfo.zw.contains("s")) {
-		secEncap(cmd)
+	else if (cmd instanceof physicalgraph.zwave.Command) {
+		def cmdTemp = zwave.multiChannelV3.multiChannelCmdEncap(sourceEndPoint: 0x01, destinationEndPoint: endpointNumber).encapsulate(cmd)
+		zwave.securityV1.securityMessageEncapsulation().encapsulate(cmdTemp).format()
 	} else {
 		cmd.format()
-	}
-}
-
-private secEncap(physicalgraph.zwave.Command cmd) {
-	zwave.securityV1.securityMessageEncapsulation().encapsulate(cmd).format()
+	} 
 }
 
 private getParameterMap() {[[
@@ -238,10 +214,10 @@ private syncConfiguration() {
 	parameterMap.each {
 		try {
 			if (state.currentPreferencesState."$it.key".status == "syncPending") {
-				commands << zwave.configurationV1.configurationSet(scaledConfigurationValue: getCommandValue(it), parameterNumber: it.parameterNumber, size: it.size).format()
+				commands << encap(0, zwave.configurationV1.configurationSet(scaledConfigurationValue: getCommandValue(it), parameterNumber: it.parameterNumber, size: it.size))
 				commands << "delay 300"
-				commands << zwave.configurationV1.configurationGet(parameterNumber: it.parameterNumber).format()
-		    }
+				commands << encap(0, zwave.configurationV1.configurationGet(parameterNumber: it.parameterNumber))
+			}
 		} catch (e) {
 			log.warn "There's been an issue with preference: ${it.key}"
 		}
@@ -268,8 +244,6 @@ private getPreferenceValue(preference, value = "default") {
 	switch (preference.type) {
 		case "enum":
 			return String.valueOf(integerValue)
-		case "boolean":
-			return String.valueOf(preference.optionActive == integerValue)
 		default:
 			return integerValue
 	}
@@ -278,8 +252,6 @@ private getPreferenceValue(preference, value = "default") {
 private getCommandValue(preference) {
 	def parameterKey = preference.key
 	switch (preference.type) {
-		case "boolean":
-			return settings."$parameterKey" ? preference.optionActive : preference.optionInactive
 		default:
 			return Integer.parseInt(settings."$parameterKey")
 	}
