@@ -1,3 +1,3 @@
-# SmartThings
+# SmartThings - Vision Devices
 
-Welcome to KuoWei's SmartThings Repository.
+Welcome to KuoWei's SmartThings - Vision Devices Repository.
